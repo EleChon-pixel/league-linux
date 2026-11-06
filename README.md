@@ -12,7 +12,8 @@ runtime; it does not implement a new macOS compatibility layer.
 A successful build or a running launcher does not demonstrate that Riot will
 accept an online game session. No anti-cheat patches, identity masking or login
 automation are implemented in this wrapper. Upstream's own runtime includes
-platform compatibility code; it has not been comprehensively security-audited.
+platform compatibility code; it has not been comprehensively security-audited. Not affiliated with
+or endorsed by Riot Games; see the [disclaimer](#disclaimer).
 
 ## Local launcher
 
@@ -134,3 +135,30 @@ Stop the session, then remove the generated user service, desktop entry and
 `~/.local/bin/league-linux`, and run `systemctl --user daemon-reload`.
 Runtime data and the checkout are intentionally preserved for manual removal.
 Nix installation/removal is separate and follows its official documentation.
+
+## Disclaimer
+
+League Linux isn't endorsed by Riot Games and doesn't reflect the views or
+opinions of Riot Games or anyone officially involved in producing or managing
+Riot Games properties. Riot Games, League of Legends and all associated
+properties are trademarks or registered trademarks of Riot Games, Inc.
+
+This is an unofficial community project with no affiliation to Riot Games,
+Apple or the Darling project. It does not include, modify or redistribute any
+Riot software: the Riot client is downloaded from Riot by its own installer, and
+you log in through Riot's own window.
+
+Running League of Legends through a compatibility layer is not supported by
+Riot. Riot may treat it as a third-party tool, and upstream reports account
+suspensions. Before using it, read Riot's
+[Terms of Service](https://www.riotgames.com/en/terms-of-service). You use this
+software entirely at your own risk; the authors are not responsible for account
+actions, bans, data loss or any other consequence of using it.
+
+## License
+
+The launcher in this repository is released under the [MIT License](LICENSE).
+The darling-lol runtime it builds is a separate project, fetched into
+`upstream/` and not part of this repository. It keeps its own licenses
+(GPL-3.0 for its integration tooling; Darling and other upstream components
+under their existing licenses).
