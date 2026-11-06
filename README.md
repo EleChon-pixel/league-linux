@@ -12,8 +12,8 @@ runtime; it does not implement a new macOS compatibility layer.
 A successful build or a running launcher does not demonstrate that Riot will
 accept an online game session. No anti-cheat patches, identity masking or login
 automation are implemented in this wrapper. Upstream's own runtime includes
-platform compatibility code; it has not been comprehensively security-audited. Not affiliated with
-or endorsed by Riot Games; see the [disclaimer](#disclaimer).
+platform compatibility code; it has not been comprehensively security-audited.
+Not affiliated with or endorsed by Riot Games; see the [disclaimer](#disclaimer).
 
 ## Local launcher
 
