@@ -129,6 +129,23 @@ class ManagerTests(unittest.TestCase):
             with self.assertRaisesRegex(app.Error, "unavailable"):
                 self.manager.status()
 
+    def test_play_entry_starts_session_and_offers_stop_and_manager(self):
+        entries = app.desktop_entries(Path('/home/u/my "bin"/league%linux'))
+        play = entries["play"]
+        self.assertIn('Exec="/home/u/my \\"bin\\"/league%%linux" play\n', play)
+        self.assertIn('Actions=stop;manager;', play)
+        self.assertIn('[Desktop Action stop]\nName=Stop session\nExec="/home/u/my \\"bin\\"/league%%linux" stop', play)
+        self.assertIn('Exec="/home/u/my \\"bin\\"/league%%linux" gui', entries["manager"])
+
+    def test_play_reports_failures_as_notifications(self):
+        with patch.object(app.Manager, "start", side_effect=app.Error("Runtime is not built")), \
+                patch.object(app, "notify") as notify, patch("sys.stderr"):
+            self.assertEqual(app.main(["play"]), 1)
+        notify.assert_called_once_with("League could not start", "Runtime is not built")
+        with patch.object(app.Manager, "start"), patch.object(app, "notify") as notify:
+            self.assertEqual(app.main(["play"]), 0)
+        self.assertEqual(notify.call_args.args[0], "Starting League")
+
     def test_cosmic_terminal_action_uses_argument_separator(self):
         with patch("shutil.which", side_effect=lambda name: "/usr/bin/cosmic-term" if name == "cosmic-term" else None), \
                 patch("subprocess.Popen") as launch:

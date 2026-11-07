@@ -331,9 +331,19 @@ def install(manager):
     import shlex
     binary.write_text("#!/bin/sh\nexec " + shlex.join([sys.executable, str(ROOT / "league_linux.py")]) + ' "$@"\n')
     binary.chmod(0o755)
+    desktop.write_text(desktop_entries(binary)["manager"])
+    play = data / "applications/league-linux-play.desktop"
+    play.write_text(desktop_entries(binary)["play"])
+    manager.run(["systemctl", "--user", "daemon-reload"], capture=True)
+    print(f"Installed {binary}\nDesktop entries: {desktop}, {play}\nUser service: {unit}\n"
+          "No login autostart enabled.")
+
+
+def desktop_entries(binary):
+    """The manager window entry and the one-click play entry."""
     # Desktop quoting is similar to Exec syntax, but dollar signs are literal.
     executable = str(binary).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
-    desktop.write_text(f"""[Desktop Entry]
+    manager = f"""[Desktop Entry]
 Type=Application
 Name=League Linux
 Comment=Manage the experimental macOS League compatibility runtime
@@ -342,9 +352,34 @@ Icon=applications-games
 Terminal=false
 Categories=Game;
 StartupNotify=true
-""")
-    manager.run(["systemctl", "--user", "daemon-reload"], capture=True)
-    print(f"Installed {binary}\nDesktop entry: {desktop}\nUser service: {unit}\nNo login autostart enabled.")
+"""
+    play = f"""[Desktop Entry]
+Type=Application
+Name=League of Legends
+Comment=Start the Riot Client in the League Linux runtime
+Exec="{executable}" play
+Icon=applications-games
+Terminal=false
+Categories=Game;
+Keywords=League;Riot;LoL;
+Actions=stop;manager;
+
+[Desktop Action stop]
+Name=Stop session
+Exec="{executable}" stop
+
+[Desktop Action manager]
+Name=Open League Linux manager
+Exec="{executable}" gui
+"""
+    return {"manager": manager, "play": play}
+
+
+def notify(summary, body):
+    """Desktop notification for actions started without a terminal."""
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", "--app-name=League Linux", "--icon=applications-games",
+                        summary, body], check=False)
 
 
 def terminal(command):
@@ -481,7 +516,8 @@ def gui(manager, on_ready=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("install", "prepare", "install-client", "start", "stop", "gui", "_session", "_stop-backend"):
+    for name in ("install", "prepare", "install-client", "start", "play", "stop", "gui", "_session",
+                 "_stop-backend"):
         sub.add_parser(name)
     for name in ("status", "doctor"):
         sub.add_parser(name).add_argument("--json", action="store_true")
@@ -502,6 +538,14 @@ def main(argv=None):
             return manager.install_client()
         elif args.command == "start":
             manager.start()
+        elif args.command == "play":
+            # The desktop entry has no terminal: report the outcome as a notification.
+            try:
+                manager.start()
+            except (Error, OSError) as e:
+                notify("League could not start", str(e))
+                raise
+            notify("Starting League", "The Riot Client opens in a few seconds.")
         elif args.command == "stop":
             manager.stop()
         elif args.command == "_session":
