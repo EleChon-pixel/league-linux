@@ -375,6 +375,26 @@ Exec="{executable}" gui
     return {"manager": manager, "play": play}
 
 
+def raise_client_windows():
+    """Restore and focus the Riot Client's windows (X11/Xwayland). True if any."""
+    if not shutil.which("xdotool"):
+        return False
+    found = subprocess.run(["xdotool", "search", "--class", "^Riot Client$"],
+                           capture_output=True, text=True, check=False)
+    windows = found.stdout.split()
+    raised = False
+    for window in windows:
+        # Skip the unmapped splash window; map+activate un-minimizes the main one.
+        state = subprocess.run(["xwininfo", "-id", window], capture_output=True, text=True,
+                               check=False).stdout if shutil.which("xwininfo") else ""
+        if "IsUnMapped" in state:
+            continue
+        subprocess.run(["xdotool", "windowmap", window, "windowactivate", window],
+                       capture_output=True, check=False)
+        raised = True
+    return raised
+
+
 def notify(summary, body):
     """Desktop notification for actions started without a terminal."""
     if shutil.which("notify-send"):
@@ -541,6 +561,13 @@ def main(argv=None):
         elif args.command == "play":
             # The desktop entry has no terminal: report the outcome as a notification.
             try:
+                running = manager.status()["service"].get("ActiveState") in ("active", "activating")
+                if running:
+                    # A second start is a no-op; bring the existing client forward instead.
+                    if not raise_client_windows():
+                        notify("League is already running",
+                               "Open the Riot Client from your taskbar or window list.")
+                    return 0
                 manager.start()
             except (Error, OSError) as e:
                 notify("League could not start", str(e))

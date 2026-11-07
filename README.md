@@ -26,7 +26,8 @@ python3 league_linux.py install
 ```
 
 The application menu has two entries: **League of Legends** starts the session
-in one click (right-click it for *Stop session* or the manager), and **League
+in one click, or brings the Riot Client back to the front if it is already
+running (right-click it for *Stop session* or the manager), and **League
 Linux** opens the manager window. Without a terminal, the play entry reports
 start-up problems as desktop notifications. Installation does not start a
 game or enable a service at login. Keep this checkout at its current path, since
