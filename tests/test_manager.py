@@ -159,13 +159,17 @@ class ManagerTests(unittest.TestCase):
         start.assert_not_called()
         raise_windows.assert_called_once_with()
         notify.assert_not_called()
+        # No visible window (closed into the background): restart the session.
         with patch.object(app.Manager, "status", return_value=running), \
+                patch.object(app.Manager, "stop") as stop, \
                 patch.object(app.Manager, "start") as start, \
                 patch.object(app, "raise_client_windows", return_value=False), \
                 patch.object(app, "notify") as notify:
             self.assertEqual(app.main(["play"]), 0)
-        start.assert_not_called()
-        self.assertEqual(notify.call_args.args[0], "League is already running")
+        stop.assert_called_once_with()
+        start.assert_called_once_with()
+        self.assertEqual([c.args[0] for c in notify.call_args_list],
+                         ["Restarting League", "Starting League"])
 
     def test_cosmic_terminal_action_uses_argument_separator(self):
         with patch("shutil.which", side_effect=lambda name: "/usr/bin/cosmic-term" if name == "cosmic-term" else None), \

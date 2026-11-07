@@ -27,7 +27,9 @@ python3 league_linux.py install
 
 The application menu has two entries: **League of Legends** starts the session
 in one click, or brings the Riot Client back to the front if it is already
-running (right-click it for *Stop session* or the manager), and **League
+running. Closing the Riot Client's window keeps it running in the background
+(on macOS it waits in the menu bar, which Darling lacks); the entry then
+restarts the session. Right-click it for *Stop session* or the manager. **League
 Linux** opens the manager window. Without a terminal, the play entry reports
 start-up problems as desktop notifications. Installation does not start a
 game or enable a service at login. Keep this checkout at its current path, since

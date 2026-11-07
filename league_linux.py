@@ -564,10 +564,12 @@ def main(argv=None):
                 running = manager.status()["service"].get("ActiveState") in ("active", "activating")
                 if running:
                     # A second start is a no-op; bring the existing client forward instead.
-                    if not raise_client_windows():
-                        notify("League is already running",
-                               "Open the Riot Client from your taskbar or window list.")
-                    return 0
+                    if raise_client_windows():
+                        return 0
+                    # Closing the Riot Client's window keeps it running for the macOS
+                    # menu-bar icon, which Darling lacks: restart to get a window back.
+                    notify("Restarting League", "The Riot Client window was closed; reopening it.")
+                    manager.stop()
                 manager.start()
             except (Error, OSError) as e:
                 notify("League could not start", str(e))
