@@ -137,8 +137,8 @@ The latest local results are in `docs/LOCAL-STATUS.md`.
 
 ## Remove the local integration
 
-Stop the session, then remove the generated user service, both desktop entries
-(`league-linux.desktop`, `league-linux-play.desktop`) and
+Stop the session, then remove the generated user service, the desktop entries
+(`league-linux.desktop`, `league-linux-play.desktop`, `league-linux-quit.desktop`) and
 `~/.local/bin/league-linux`, and run `systemctl --user daemon-reload`.
 Runtime data and the checkout are intentionally preserved for manual removal.
 Nix installation/removal is separate and follows its official documentation.

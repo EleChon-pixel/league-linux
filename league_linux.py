@@ -334,13 +334,15 @@ def install(manager):
     desktop.write_text(desktop_entries(binary)["manager"])
     play = data / "applications/league-linux-play.desktop"
     play.write_text(desktop_entries(binary)["play"])
+    quit_entry = data / "applications/league-linux-quit.desktop"
+    quit_entry.write_text(desktop_entries(binary)["quit"])
     manager.run(["systemctl", "--user", "daemon-reload"], capture=True)
-    print(f"Installed {binary}\nDesktop entries: {desktop}, {play}\nUser service: {unit}\n"
+    print(f"Installed {binary}\nDesktop entries: {desktop}, {play}, {quit_entry}\nUser service: {unit}\n"
           "No login autostart enabled.")
 
 
 def desktop_entries(binary):
-    """The manager window entry and the one-click play entry."""
+    """The manager window entry and the one-click play and quit entries."""
     # Desktop quoting is similar to Exec syntax, but dollar signs are literal.
     executable = str(binary).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
     manager = f"""[Desktop Entry]
@@ -372,7 +374,17 @@ Exec="{executable}" stop
 Name=Open League Linux manager
 Exec="{executable}" gui
 """
-    return {"manager": manager, "play": play}
+    quit_entry = f"""[Desktop Entry]
+Type=Application
+Name=Quit League
+Comment=Close the Riot Client, League and the League Linux runtime
+Exec="{executable}" quit
+Icon=application-exit
+Terminal=false
+Categories=Game;
+Keywords=League;Riot;LoL;Exit;Stop;Close;
+"""
+    return {"manager": manager, "play": play, "quit": quit_entry}
 
 
 def raise_client_windows():
@@ -536,7 +548,7 @@ def gui(manager, on_ready=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("install", "prepare", "install-client", "start", "play", "stop", "gui", "_session",
+    for name in ("install", "prepare", "install-client", "start", "play", "stop", "quit", "gui", "_session",
                  "_stop-backend"):
         sub.add_parser(name)
     for name in ("status", "doctor"):
@@ -577,6 +589,14 @@ def main(argv=None):
             notify("Starting League", "The Riot Client opens in a few seconds.")
         elif args.command == "stop":
             manager.stop()
+        elif args.command == "quit":
+            # Desktop-entry variant of stop: no terminal, so report via notifications.
+            try:
+                manager.stop()
+            except (Error, OSError) as e:
+                notify("League could not be closed", str(e))
+                raise
+            notify("League closed", "The Riot Client and League have exited.")
         elif args.command == "_session":
             return manager.session()
         elif args.command == "_stop-backend":

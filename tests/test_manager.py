@@ -136,6 +136,18 @@ class ManagerTests(unittest.TestCase):
         self.assertIn('Actions=stop;manager;', play)
         self.assertIn('[Desktop Action stop]\nName=Stop session\nExec="/home/u/my \\"bin\\"/league%%linux" stop', play)
         self.assertIn('Exec="/home/u/my \\"bin\\"/league%%linux" gui', entries["manager"])
+        self.assertIn('Name=Quit League\nComment=', entries["quit"])
+        self.assertIn('Exec="/home/u/my \\"bin\\"/league%%linux" quit\n', entries["quit"])
+
+    def test_quit_stops_the_session_and_notifies(self):
+        with patch.object(app.Manager, "stop") as stop, patch.object(app, "notify") as notify:
+            self.assertEqual(app.main(["quit"]), 0)
+        stop.assert_called_once_with()
+        self.assertEqual(notify.call_args.args[0], "League closed")
+        with patch.object(app.Manager, "stop", side_effect=app.Error("systemctl timed out")), \
+                patch.object(app, "notify") as notify, patch("sys.stderr"):
+            self.assertEqual(app.main(["quit"]), 1)
+        notify.assert_called_once_with("League could not be closed", "systemctl timed out")
 
     def test_play_reports_failures_as_notifications(self):
         stopped = {"service": {"ActiveState": "inactive"}}
