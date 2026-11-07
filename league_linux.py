@@ -23,6 +23,12 @@ DISPLAY_ENV = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR",
 REGIONS = ("euw", "eune", "na", "br", "kr", "jp", "la1", "la2", "oc1", "ru", "tr")
 
 
+# The Mac every prefix presents (configure-darling-platform.py profiles): a 2019 16-inch
+# MacBook Pro on macOS Sonoma 14.7, the version the Darling kernel already reports.
+HARDWARE_PROFILE = "macbookpro16,1"
+OS_PROFILE = "sonoma-14.7-23H124"
+
+
 class Error(Exception):
     pass
 
@@ -194,7 +200,22 @@ class Manager:
             self.run(["nice", "-n", "10", self.backend(), "--update"], umask=0o022)
             if not self.package_ready():
                 raise Error("Build finished but upstream runtime validation did not pass.")
+            self.provision_identity()
             print("Runtime built and validated. Next: league-linux install-client")
+
+    def provision_identity(self, show_host=False, host_cpuid=False):
+        """One Mac identity for every guest process: IOKit, sysctl, Metal, hostname, OS version.
+
+        Idempotent; an existing serial and UUID are kept, so the machine stays the same
+        across rebuilds. The prefix must be stopped.
+        """
+        tool = self.workspace / "tools/configure-darling-platform.py"
+        if not tool.is_file():
+            raise Error(f"Platform identity tool missing: {tool}. Run league-linux prepare.")
+        self.run([sys.executable, tool, "--prefix", self.prefix, "--provision",
+                  "--hardware-profile", HARDWARE_PROFILE, "--os-profile", OS_PROFILE, "--write",
+                  *(["--show-host"] if show_host else []), *(["--host-cpuid"] if host_cpuid else [])],
+                 env=self.environment())
 
     def install_client(self):
         if not sys.stdin.isatty():
@@ -548,11 +569,16 @@ def gui(manager, on_ready=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("install", "prepare", "install-client", "start", "play", "stop", "quit", "gui", "_session",
-                 "_stop-backend"):
+    for name in ("install", "prepare", "install-client", "start", "play", "stop", "quit", "gui",
+                 "_session", "_stop-backend"):
         sub.add_parser(name)
     for name in ("status", "doctor"):
         sub.add_parser(name).add_argument("--json", action="store_true")
+    identity = sub.add_parser("identity")
+    identity.add_argument("--show-host", action="store_true",
+                          help="let applications see /proc, the host root, Linux interface names and host variables")
+    identity.add_argument("--host-cpuid", action="store_true",
+                          help="leave CPUID instructions reporting the host CPU")
     log = sub.add_parser("logs")
     log.add_argument("--follow", action="store_true")
     cfg = sub.add_parser("configure")
@@ -568,6 +594,9 @@ def main(argv=None):
             manager.prepare()
         elif args.command == "install-client":
             return manager.install_client()
+        elif args.command == "identity":
+            with manager.operation():
+                manager.provision_identity(args.show_host, args.host_cpuid)
         elif args.command == "start":
             manager.start()
         elif args.command == "play":

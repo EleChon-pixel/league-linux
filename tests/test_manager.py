@@ -77,6 +77,19 @@ class ManagerTests(unittest.TestCase):
                 self.manager.prepare()
             run.assert_not_called()
 
+    def test_identity_uses_the_fixed_mac_profile(self):
+        tool = self.manager.workspace / "tools/configure-darling-platform.py"
+        with patch.object(self.manager, "run") as run:
+            with self.assertRaisesRegex(app.Error, "identity tool missing"):
+                self.manager.provision_identity()
+            tool.parent.mkdir(parents=True)
+            tool.write_text("")
+            self.manager.provision_identity()
+        command = [str(x) for x in run.call_args.args[0]]
+        self.assertEqual(command[1:], [str(tool), "--prefix", str(self.manager.prefix), "--provision",
+                                       "--hardware-profile", "macbookpro16,1",
+                                       "--os-profile", "sonoma-14.7-23H124", "--write"])
+
     def test_build_umask_creates_launchctl_compatible_directories(self):
         directory = Path(self.tmp.name) / "LaunchDaemons"
         previous = os.umask(0o002)

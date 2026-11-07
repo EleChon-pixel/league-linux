@@ -82,6 +82,7 @@ and displays Riot's UI. Sign-in and game installation are manual.
 
 ```sh
 league-linux install-client
+league-linux identity   # only for prefixes prepared before the identity layer
 league-linux configure --region eune --gpu nvidia
 league-linux start      # or: league-linux play (same, with desktop notifications)
 league-linux status
@@ -104,6 +105,38 @@ integration tests. The default backend is the Nix package built by `prepare`.
 Region defaults to EUNE; change it to your actual account region before launch.
 GPU `auto` leaves selection to the driver; `nvidia` requests PRIME offload.
 The `intel` selector currently targets this laptop's Intel 8086:46a6 GPU.
+
+## Machine identity
+
+`prepare` gives the prefix one consistent Mac identity, and `league-linux identity`
+reapplies it to an existing prefix (stop the session first). Every guest process
+sees a 2019 16-inch MacBook Pro (`MacBookPro16,1`, Intel Core i9-9980HK, Intel UHD
+Graphics 630 + AMD Radeon Pro 5500M) on macOS Sonoma 14.7 (23H124), hostname
+`MacBook-Pro.local`, through sysctl, IOKit, Metal, `system_profiler` and
+`SystemVersion.plist`. The serial and hardware UUID are generated once per prefix
+and kept. The guest home has its own `Desktop`, `Documents`, ... folders rather than
+links into your Linux home, and the client starts from `/Users/Shared/Riot Games`,
+not from a `/Volumes/SystemRoot/home/...` path. The guest environment is built from an
+allowlist: desktop-session, shell and developer-tool variables stay on the host.
+Applications also do not see `/proc`, `/Volumes/SystemRoot`, Linux mount points,
+Linux interface names (they get `lo0`, `en0`, `utunN`) or the host-library variables
+in their environment, and `CPUID` instructions report the profile's CPU. Only names
+and IDs are presented; the GPU that renders and the logical CPU count are your real
+ones. If a game misbehaves, `league-linux identity --show-host` or
+`league-linux identity --host-cpuid` turns those parts off (run `league-linux identity`
+again to turn them back on). See upstream `docs/PLATFORM_IDENTITY.md` for
+the details.
+
+### Auditing what the client sends
+
+`scripts/telemetry-audit.sh [seconds]` records the client's HTTPS requests once
+through mitmproxy (`uv tool install --python 3.12 mitmproxy`). A dedicated CA is
+trusted in the guest only for the run and removed afterwards. Credentials, tokens
+and account names are redacted before anything is written to
+`~/.local/share/league-linux/audit/telemetry-*.jsonl`. The summary at the end lists
+contacted hosts, endpoints, the machine identity fields that were sent, and any
+Linux/Darling/host-hardware telltales. Hosts that refuse the audit CA are reported
+as pinned.
 
 ## Scope of separation
 
