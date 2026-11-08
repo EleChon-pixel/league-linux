@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Summarize a telemetry-audit JSONL log: hosts, endpoints, pinned hosts, identity fields.
 
-    scripts/telemetry-audit-summary.py <log.jsonl>
+    scripts/telemetry-audit-summary.py <log.jsonl> [<connections.tsv>]
+
+The optional connections file (written next to the log by telemetry-audit.sh) lists the
+outside connections the session's processes opened without the proxy; those requests are
+missing from the log, so it shows where the log is blind.
 
 "Identity fields" are request values whose key or content names the machine: OS and
 version, hardware model, CPU, GPU, memory, hostname, serial/UUID/MAC-like identifiers,
@@ -9,8 +13,10 @@ and any mention of Linux, Darling, Wine or a host path. These are what a Mac-com
 identity has to get right.
 """
 import collections
+import concurrent.futures
 import json
 import re
+import socket
 import sys
 from urllib.parse import urlsplit
 
@@ -18,8 +24,10 @@ IDENTITY_KEY = re.compile(r"(os|platform|version|build|model|machine|hardware|cp
                           r"graphics|renderer|vendor|chipset|memory|ram|hostname|computer|device|"
                           r"serial|uuid|udid|hwid|mac(addr|_address)?|fingerprint|locale|timezone|"
                           r"display|resolution|screen|driver)", re.I)
-TELLTALE = re.compile(r"(linux|darling|wine|proton|/home/|/Volumes/SystemRoot|nvidia|geforce|"
-                      r"i5-12500H|12th gen|iris xe|mesa|vulkan|x11|wayland|pop-os|ubuntu|nix)", re.I)
+# Short words only as whole words: "mesa" is also inside "TimeSample".
+TELLTALE = re.compile(r"(linux|darling|\bwine\b|\bproton\b|/home/|/Volumes/SystemRoot|nvidia|geforce|"
+                      r"i5-12500H|12th gen|iris xe|\bmesa\b|vulkan|\bx11\b|wayland|pop-os|ubuntu|"
+                      r"\bnix\b|/nix/store)", re.I)
 
 
 def walk(value, path=""):
@@ -57,7 +65,10 @@ def main(path):
             for key, item in walk(value):
                 text = str(item)
                 endpoint = url.netloc + url.path
-                if TELLTALE.search(text) or TELLTALE.search(key):
+                match = TELLTALE.search(text) or TELLTALE.search(key)
+                if match:
+                    if match.string is text:  # show the match in context, not a binary body's start
+                        text = text[max(0, match.start() - 60):match.end() + 60]
                     telltales[(where + ":" + key, text[:200])].add(endpoint)
                 elif IDENTITY_KEY.search(key.rsplit(".", 1)[-1]) and len(text) < 200:
                     identity[(where + ":" + key, text)].add(endpoint)
@@ -86,5 +97,34 @@ def main(path):
         print("  %s = %s\n      in %s" % (key, value, ", ".join(sorted(where))[:160]))
 
 
+def direct_connections(path):
+    """Outside connections that did not go through the proxy, from telemetry-audit.sh."""
+    seen = collections.Counter()
+    for line in open(path, encoding="utf-8"):
+        fields = line.rstrip("\n").split("\t")
+        if len(fields) == 3:
+            seen[tuple(fields)] += 1
+    print("\n== Direct connections (bypassed the proxy; not in the log above)")
+    if not seen:
+        print("  none")
+        return
+    peers = sorted({peer.rsplit(":", 1)[0].strip("[]") for _, peer, _ in seen})
+    with concurrent.futures.ThreadPoolExecutor(16) as pool:
+        names = dict(zip(peers, pool.map(reverse_name, peers)))
+    for (proto, peer, process), samples in sorted(seen.items(), key=lambda item: (item[0][2], item[0][1])):
+        address = peer.rsplit(":", 1)[0].strip("[]")
+        print("  %-4s %-40s %-18s %s" % (proto, peer, process[:18], names.get(address) or ""))
+
+
+def reverse_name(address):
+    try:
+        return socket.gethostbyaddr(address)[0]
+    except (OSError, UnicodeError):
+        return ""
+
+
 if __name__ == "__main__":
+    socket.setdefaulttimeout(3)
     main(sys.argv[1])
+    if len(sys.argv) > 2:
+        direct_connections(sys.argv[2])
