@@ -10,9 +10,11 @@ runtime; it does not implement a new macOS compatibility layer.
 
 **Experimental:** upstream reports suspensions for unsupported third-party tools.
 A successful build or a running launcher does not demonstrate that Riot will
-accept an online game session. No anti-cheat patches, identity masking or login
-automation are implemented in this wrapper. Upstream's own runtime includes
-platform compatibility code; it has not been comprehensively security-audited.
+accept an online game session. No anti-cheat patches or login automation are
+implemented. The runtime does present one consistent Mac identity to the client
+(see [Machine identity](#machine-identity), including what it cannot hide).
+Upstream's own runtime includes platform compatibility code; it has not been
+comprehensively security-audited.
 Not affiliated with or endorsed by Riot Games; see the [disclaimer](#disclaimer).
 
 ## Local launcher
@@ -119,24 +121,74 @@ links into your Linux home, and the client starts from `/Users/Shared/Riot Games
 not from a `/Volumes/SystemRoot/home/...` path. The guest environment is built from an
 allowlist: desktop-session, shell and developer-tool variables stay on the host.
 Applications also do not see `/proc`, `/Volumes/SystemRoot`, Linux mount points,
-Linux interface names (they get `lo0`, `en0`, `utunN`) or the host-library variables
-in their environment, and `CPUID` instructions report the profile's CPU. Only names
-and IDs are presented; the GPU that renders and the logical CPU count are your real
-ones. If a game misbehaves, `league-linux identity --show-host` or
+Linux-only device nodes (`/dev/dri`, `/dev/nvidia*`, `/dev/shm`, `/dev/input`, ...),
+Darling's own files (`/usr/libexec/darling`, `/etc/darling-*`), Linux interface names
+(they get `lo0`, `en0`, `utunN`) or the host-library variables in their environment.
+
+`CPUID` instructions report the profile's CPU: its signature and brand, its last
+basic leaf (0x16), only the leaf-7 features a Coffee Lake part has (no SHA, GFNI,
+VAES, AVX-VNNI, PKU, ... from the newer host), and its cache sizes. The same values
+come back from sysctl (`hw.l1icachesize` ... `hw.l3cachesize`, `hw.cachelinesize`,
+`hw.tbfrequency`, `machdep.cpu.features`, `leaf7_features`, `extfeatures`), along
+with `kern.uuid` (per macOS build) and `kern.bootsessionuuid` (per boot). The process
+list (`proc_listallpids`, `KERN_PROC_ALL`) holds the session's macOS processes under
+their own names, without Darling's helpers.
+
+Only names and IDs are presented; the GPU that renders and the logical CPU count are
+your real ones. If a game misbehaves, `league-linux identity --show-host` or
 `league-linux identity --host-cpuid` turns those parts off (run `league-linux identity`
 again to turn them back on). See upstream `docs/PLATFORM_IDENTITY.md` for
 the details.
 
+### What a guest can still tell
+
+The identity covers names, IDs and what the runtime answers; it does not make the
+machine a Mac. Measured with a probe that compares against a real MacBookPro16,1
+(82 differences remain, down from 120), code inside the prefix can still notice:
+
+- **The real CPU.** Instructions the i9-9980HK lacks (SHA, GFNI, VAES, VPCLMULQDQ,
+  SERIALIZE, AVX-VNNI) still execute instead of faulting, `XCR0` enables PKRU state,
+  and the TSC ticks at the host's rate. CPUID can only be masked, not the hardware.
+- **Emulation cost.** A trapped `CPUID` takes ~3 µs and Mach IPC 30-70 µs, against
+  well under 1 µs on a Mac.
+- **A thin system.** The IOKit registry has about 10 entries (a Mac: thousands; no
+  SMC, battery, NVMe, USB, Bluetooth, HID or framebuffers), there is no dyld shared
+  cache (system libraries exist as files), no split System/Data volumes, no Finder,
+  Dock, Safari or system fonts, and only the session's few processes run (no
+  `kernel_task`, `WindowServer`, ...).
+- **Account details.** The user ID is 1000 rather than 501, the login shell is bash,
+  and `TMPDIR` is `/private/tmp`.
+
+What the client actually sends can be checked with the audit below.
+
 ### Auditing what the client sends
 
-`scripts/telemetry-audit.sh [seconds]` records the client's HTTPS requests once
-through mitmproxy (`uv tool install --python 3.12 mitmproxy`). A dedicated CA is
-trusted in the guest only for the run and removed afterwards. Credentials, tokens
-and account names are redacted before anything is written to
+`scripts/telemetry-audit.sh [seconds]` starts the session and records what the
+Riot Client, the League client and the game send, until the given time or Ctrl+C,
+through mitmproxy (`uv tool install --python 3.12 mitmproxy`).
+
+The session runs in its own network namespace: `pasta` gives it IPv4, and all of its
+TCP connections and DNS lookups go through a WireGuard tunnel into mitmproxy, so
+clients that ignore proxy settings (login, entitlements, the platform services) are
+recorded too. UDP other than DNS, which is the game's own traffic, goes out directly.
+`pasta` and `wg` come from nixpkgs automatically; `nsenter`, `ip` and `nft` must be
+installed. Runtimes older than this support only a proxy mode
+(`LEAGUE_AUDIT_MODE=proxy`), which sees just the clients that honour `https_proxy`.
+
+A dedicated CA is trusted in the guest only for the run (System keychain plus admin
+trust settings, so both the Riot Client and Chromium accept it) and removed
+afterwards. Hosts that refuse it are pinned: they are listed, and later connections
+to them pass through untouched so login and chat keep working. Credentials, tokens and
+account names are redacted before anything is written to
 `~/.local/share/league-linux/audit/telemetry-*.jsonl`. The summary at the end lists
-contacted hosts, endpoints, the machine identity fields that were sent, and any
-Linux/Darling/host-hardware telltales. Hosts that refuse the audit CA are reported
-as pinned.
+contacted hosts, endpoints, DNS lookups, non-HTTP connections (endpoints only), the
+machine identity fields that were sent, any Linux/Darling/host-hardware telltales, and
+connections that did not go through mitmproxy.
+
+While it records, use the client itself (log in, start a practice game). Quitting
+from the application menu stops the recording, and a session started from the menu
+afterwards is not recorded. Vanguard's macOS gateway encrypts its payloads before TLS,
+so its requests are listed but not readable.
 
 ## Scope of separation
 
