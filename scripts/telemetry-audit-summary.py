@@ -48,8 +48,20 @@ def main(path):
     errors = collections.Counter()
     identity = collections.defaultdict(set)
     telltales = collections.defaultdict(set)
+    lookups = collections.Counter()
+    raw_tcp = collections.Counter()
+    passthrough = collections.Counter()
     for line in open(path, encoding="utf-8"):
         record = json.loads(line)
+        if "dns" in record:
+            lookups.update(name.rstrip(".") for name in record["dns"])
+            continue
+        if "tcp" in record:
+            raw_tcp[record["tcp"]] += 1
+            continue
+        if "passthrough" in record:
+            passthrough[record["passthrough"]] += 1
+            continue
         if "tls_rejected_by_client" in record:
             pinned[record["tls_rejected_by_client"]] += 1
             continue
@@ -77,9 +89,17 @@ def main(path):
     for host, count in hosts.most_common():
         print("%6d  %s" % (count, host))
     if pinned:
-        print("\n== Refused our CA (pinned or own trust store)")
+        print("\n== Refused our CA (pinned or own trust store; later connections passed through unrecorded)")
         for host, count in pinned.most_common():
+            print("%6d  %s  (+%d passed through)" % (count, host, passthrough[host]))
+    if raw_tcp:
+        print("\n== Non-HTTP TCP (endpoints only)")
+        for host, count in raw_tcp.most_common():
             print("%6d  %s" % (count, host))
+    if lookups:
+        print("\n== DNS lookups (%d names)" % len(lookups))
+        for name, count in lookups.most_common():
+            print("%6d  %s" % (count, name))
     if errors:
         print("\n== Connection errors")
         for host, count in errors.most_common():
@@ -104,7 +124,7 @@ def direct_connections(path):
         fields = line.rstrip("\n").split("\t")
         if len(fields) == 3:
             seen[tuple(fields)] += 1
-    print("\n== Direct connections (bypassed the proxy; not in the log above)")
+    print("\n== Not through mitmproxy (sampled sockets; not in the log above)")
     if not seen:
         print("  none")
         return

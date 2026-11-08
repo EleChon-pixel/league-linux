@@ -5,7 +5,10 @@ time, method, URL, request headers and body, response status and size. Authoriza
 cookies and token/password fields are replaced by a length marker before anything is
 written, so the log can be read and shared without exposing the account. The log file is
 created with mode 0600. TLS failures are recorded too: a host the client refuses to talk
-through the proxy is pinned or uses its own trust store.
+through the proxy is pinned or uses its own trust store. Later connections to such a host
+are passed through untouched, so pinned services (login, chat) keep working; they are
+logged as passthrough. DNS lookups and non-HTTP TCP connections (endpoints only, never
+their contents) are recorded as well, for the transparent (WireGuard) mode.
 
     mitmdump -s scripts/telemetry_audit_addon.py
 """
@@ -16,7 +19,7 @@ import os
 import re
 import time
 
-from mitmproxy import http, tls
+from mitmproxy import dns, http, tcp, tls
 
 SECRET_HEADERS = {"authorization", "cookie", "set-cookie", "x-riot-entitlements-jwt",
                   "proxy-authorization"}
@@ -78,6 +81,7 @@ class TelemetryAudit:
         path = os.environ.get("LEAGUE_AUDIT_LOG", "telemetry-audit.jsonl")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         self.log = os.fdopen(fd, "a", buffering=1)
+        self.pinned = set()
 
     def write(self, record):
         self.log.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
@@ -99,10 +103,32 @@ class TelemetryAudit:
         self.write({"time": time.strftime("%H:%M:%S"), "url": scrub(flow.request.pretty_url),
                     "error": str(flow.error)})
 
+    @staticmethod
+    def server_name(context):
+        return context.server.sni or "%s:%s" % tuple(context.server.address or ("?", "?"))
+
+    def tls_clienthello(self, data: tls.ClientHelloData):
+        name = data.client_hello.sni or self.server_name(data.context)
+        if name in self.pinned:
+            data.ignore_connection = True
+            self.write({"time": time.strftime("%H:%M:%S"), "passthrough": name})
+
     def tls_failed_client(self, data: tls.TlsData):
         # The client rejected our certificate: pinned, or its own CA bundle.
-        self.write({"time": time.strftime("%H:%M:%S"), "tls_rejected_by_client": data.context.server.sni
-                    or str(data.context.server.address), "error": str(data.conn.error)})
+        name = self.server_name(data.context)
+        self.pinned.add(name)
+        self.write({"time": time.strftime("%H:%M:%S"), "tls_rejected_by_client": name,
+                    "error": str(data.conn.error)})
+
+    def dns_request(self, flow: dns.DNSFlow):
+        self.write({"time": time.strftime("%H:%M:%S"),
+                    "dns": [str(q.name) for q in flow.request.questions]})
+
+    def tcp_start(self, flow: tcp.TCPFlow):
+        # Non-HTTP TCP (chat, game services): where it goes, never what it says.
+        server = flow.server_conn
+        self.write({"time": time.strftime("%H:%M:%S"),
+                    "tcp": server.sni or "%s:%s" % tuple(server.address or ("?", "?"))})
 
 
 addons = [TelemetryAudit()]
