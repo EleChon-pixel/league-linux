@@ -186,6 +186,8 @@ class ManagerTests(unittest.TestCase):
         notify.assert_not_called()
         # No visible window (closed into the background): restart the session.
         with patch.object(app.Manager, "status", return_value=running), \
+                patch.object(app.Manager, "audit_active", return_value=False), \
+                patch.object(app.Manager, "session_age", return_value=600.0), \
                 patch.object(app.Manager, "stop") as stop, \
                 patch.object(app.Manager, "start") as start, \
                 patch.object(app, "raise_client_windows", return_value=False), \
@@ -195,6 +197,31 @@ class ManagerTests(unittest.TestCase):
         start.assert_called_once_with()
         self.assertEqual([c.args[0] for c in notify.call_args_list],
                          ["Restarting League", "Starting League"])
+
+    def test_play_leaves_audited_or_starting_sessions_running(self):
+        running = {"service": {"ActiveState": "active"}}
+        for audited, age, title in ((True, 600.0, "League is being audited"),
+                                    (False, 5.0, "League is starting")):
+            with patch.object(app.Manager, "status", return_value=running), \
+                    patch.object(app.Manager, "audit_active", return_value=audited), \
+                    patch.object(app.Manager, "session_age", return_value=age), \
+                    patch.object(app.Manager, "stop") as stop, \
+                    patch.object(app.Manager, "start") as start, \
+                    patch.object(app, "raise_client_windows", return_value=False), \
+                    patch.object(app, "notify") as notify:
+                self.assertEqual(app.main(["play"]), 0)
+            stop.assert_not_called()
+            start.assert_not_called()
+            self.assertEqual([c.args[0] for c in notify.call_args_list], [title])
+
+    def test_audit_marker_needs_a_live_process(self):
+        marker = self.home / "audit/.active"
+        self.assertFalse(self.manager.audit_active())
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(os.getpid()))
+        self.assertTrue(self.manager.audit_active())
+        marker.write_text("999999999")
+        self.assertFalse(self.manager.audit_active())
 
     def test_cosmic_terminal_action_uses_argument_separator(self):
         with patch("shutil.which", side_effect=lambda name: "/usr/bin/cosmic-term" if name == "cosmic-term" else None), \

@@ -11,6 +11,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import time
 import signal
 import subprocess
 import sys
@@ -18,6 +19,8 @@ import threading
 
 ROOT = Path(__file__).resolve().parent
 UNIT = "league-linux-session.service"
+# A session younger than this has no client window yet; `play` waits instead of restarting.
+STARTUP_GRACE_SECONDS = 60
 DISPLAY_ENV = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR",
                "DBUS_SESSION_BUS_ADDRESS", "XDG_SESSION_TYPE", "PULSE_SERVER")
 REGIONS = ("euw", "eune", "na", "br", "kr", "jp", "la1", "la2", "oc1", "ru", "tr")
@@ -262,6 +265,27 @@ class Manager:
         self.run(["systemctl", "--user", "reset-failed", UNIT], capture=True, check=False)
         self.run(["systemctl", "--user", "start", UNIT], capture=True)
         print("Session start requested. Check status and logs for runtime/client errors.")
+
+    def audit_active(self):
+        """True while scripts/telemetry-audit.sh records the session (it writes its PID)."""
+        try:
+            pid = int((self.home / "audit/.active").read_text().strip())
+            os.kill(pid, 0)
+        except (OSError, ValueError):
+            return False
+        return True
+
+    def session_age(self):
+        """Seconds since the session became active, or None if unknown."""
+        result = self.run(["systemctl", "--user", "show", UNIT, "--property=ActiveEnterTimestampMonotonic",
+                           "--value"], capture=True, timeout=10, check=False)
+        try:
+            entered = int(result.stdout.strip())
+        except (AttributeError, ValueError):
+            return None
+        if entered <= 0:
+            return None
+        return time.monotonic() - entered / 1e6
 
     def stop(self):
         self.run(["systemctl", "--user", "stop", UNIT], capture=True, timeout=100)
@@ -606,6 +630,16 @@ def main(argv=None):
                 if running:
                     # A second start is a no-op; bring the existing client forward instead.
                     if raise_client_windows():
+                        return 0
+                    # Never restart a session an audit records (the new one would run
+                    # outside it), nor one still starting (its window is not up yet).
+                    if manager.audit_active():
+                        notify("League is being audited",
+                               "The recorded session keeps running; use its window, or Quit League to end the audit.")
+                        return 0
+                    age = manager.session_age()
+                    if age is not None and age < STARTUP_GRACE_SECONDS:
+                        notify("League is starting", "The Riot Client window opens in a few seconds.")
                         return 0
                     # Closing the Riot Client's window keeps it running for the macOS
                     # menu-bar icon, which Darling lacks: restart to get a window back.

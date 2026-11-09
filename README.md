@@ -124,6 +124,11 @@ Applications also do not see `/proc`, `/Volumes/SystemRoot`, Linux mount points,
 Linux-only device nodes (`/dev/dri`, `/dev/nvidia*`, `/dev/shm`, `/dev/input`, ...),
 Darling's own files (`/usr/libexec/darling`, `/etc/darling-*`), Linux interface names
 (they get `lo0`, `en0`, `utunN`) or the host-library variables in their environment.
+Network adapters do not show their hardware addresses: `en0` reports the prefix's
+generated ROM address, which carries one of Apple's vendor prefixes as a Mac's built-in
+interface does, and the other interfaces get addresses derived from it. The Riot
+Client sends this list at every start. The memory size is 16 GB both through sysctl
+and through Mach `host_info`, which Chromium reads.
 
 `CPUID` instructions report the profile's CPU: its signature and brand, its last
 basic leaf (0x16), only the leaf-7 features a Coffee Lake part has (no SHA, GFNI,
@@ -156,8 +161,7 @@ machine a Mac. Measured with a probe that compares against a real MacBookPro16,1
   cache (system libraries exist as files), no split System/Data volumes, no Finder,
   Dock, Safari or system fonts, and only the session's few processes run (no
   `kernel_task`, `WindowServer`, ...).
-- **Account details.** The user ID is 1000 rather than 501, the login shell is bash,
-  and `TMPDIR` is `/private/tmp`.
+- **Account details.** The user ID is 1000 rather than 501.
 
 What the client actually sends can be checked with the audit below.
 
@@ -185,10 +189,20 @@ contacted hosts, endpoints, DNS lookups, non-HTTP connections (endpoints only), 
 machine identity fields that were sent, any Linux/Darling/host-hardware telltales, and
 connections that did not go through mitmproxy.
 
-While it records, use the client itself (log in, start a practice game). Quitting
-from the application menu stops the recording, and a session started from the menu
-afterwards is not recorded. Vanguard's macOS gateway encrypts its payloads before TLS,
-so its requests are listed but not readable.
+While it records, use the client itself (log in, start a practice game). The audit
+starts the session; "Play League" in the application menu leaves a recorded session
+running rather than restarting it. Quitting League ends the session and the recording.
+
+What stays unreadable:
+
+- The League client and the game check certificates against their own list, so their
+  HTTPS (queues, payments, `ekg.riotgames.com`, chat, voice) is passed through, not
+  decrypted. The first League client of an audit can fail to load its queues while
+  those hosts are being found; the restarted client works.
+- Vanguard's macOS gateway encrypts its payloads before TLS, so its requests are
+  listed but not readable.
+- Game traffic (UDP to the game server) leaves the namespace directly. Riot encrypts it
+  with an extra layer beyond the per-match key on the game's command line.
 
 ## Scope of separation
 

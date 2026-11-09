@@ -33,6 +33,7 @@ log="$audit/telemetry-$(date +%Y%m%d-%H%M%S).jsonl"
 connections="${log%.jsonl}.connections.tsv"
 pasta_pid="$audit/.pasta.pid"
 netns_pid="$audit/.netns.pid"
+active="$audit/.active"
 unit=league-linux-session.service
 guest_ca=/Users/Shared/.league-audit-ca.pem
 host_ca="$home/prefix$guest_ca"
@@ -144,6 +145,7 @@ watch_connections() {
 
 cleanup() {
   set +e
+  rm -f "$active"
   [ -n "${watch_pid:-}" ] && kill "$watch_pid" 2>/dev/null
   "$launcher" stop >/dev/null 2>&1
   systemctl --user unset-environment $proxy_vars $netns_vars
@@ -183,10 +185,19 @@ systemctl --user unset-environment $proxy_vars $netns_vars
 : > "$connections"
 watch_connections &
 watch_pid=$!
+# `league-linux play` reads this and leaves the recorded session alone instead of
+# restarting it outside the audit.
+echo $$ > "$active"
 echo "Recording ($mode mode) to $log. Use the client (log in, open the store, start a practice game...)."
-if [ -n "$duration" ]; then
-  sleep "$duration"
-else
-  echo "Press Ctrl+C to stop."
-  wait "$mitm_pid"
-fi
+[ -n "$duration" ] || echo "Press Ctrl+C or quit League to stop."
+# Short sleeps in the background: bash runs the INT/TERM trap only between commands, so a
+# foreground `sleep "$duration"` held off Ctrl+C and kill until it finished.
+deadline=$(( $(date +%s) + ${duration:-0} ))
+while kill -0 "$mitm_pid" 2>/dev/null; do
+  sleep 2 & wait $!
+  case $(systemctl --user is-active "$unit" 2>/dev/null) in
+    active|activating|reloading) ;;
+    *) echo "The session ended."; break;;
+  esac
+  if [ -n "$duration" ] && [ "$(date +%s)" -ge "$deadline" ]; then break; fi
+done
