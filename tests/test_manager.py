@@ -223,6 +223,32 @@ class ManagerTests(unittest.TestCase):
         marker.write_text("999999999")
         self.assertFalse(self.manager.audit_active())
 
+    def test_client_windows_present_needs_xdotool(self):
+        with patch("shutil.which", return_value=None):
+            self.assertIsNone(app.client_windows_present(":1"))
+        self.assertIsNone(app.client_windows_present(""))
+
+    def test_client_windows_present_reports_mapped_windows(self):
+        def which(name):
+            return "/usr/bin/" + name if name in ("xdotool", "xwininfo") else None
+        def run(cmd, **kw):
+            if cmd[0] == "xdotool":
+                out = "123\n" if cmd[-1] == "Riot Client" else ""
+                return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="Map State: IsViewable\n", stderr="")
+        with patch("shutil.which", side_effect=which), patch("subprocess.run", side_effect=run):
+            self.assertTrue(app.client_windows_present(":1"))
+        def run_unmapped(cmd, **kw):
+            if cmd[0] == "xdotool":
+                return subprocess.CompletedProcess(cmd, 0, stdout="123\n", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="Map State: IsUnMapped\n", stderr="")
+        with patch("shutil.which", side_effect=which), patch("subprocess.run", side_effect=run_unmapped):
+            self.assertFalse(app.client_windows_present(":1"))
+
+    def test_unit_treats_backend_shutdown_exit_as_success(self):
+        text = app.unit_text(self.manager)
+        self.assertIn("SuccessExitStatus=1", text)
+
     def test_cosmic_terminal_action_uses_argument_separator(self):
         with patch("shutil.which", side_effect=lambda name: "/usr/bin/cosmic-term" if name == "cosmic-term" else None), \
                 patch("subprocess.Popen") as launch:

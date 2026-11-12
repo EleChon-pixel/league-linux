@@ -19,6 +19,15 @@ import threading
 
 ROOT = Path(__file__).resolve().parent
 UNIT = "league-linux-session.service"
+# Window classes the client and game present (xdotool WM_CLASS). A session with none
+# of these mapped has been closed by the user.
+CLIENT_WINDOW_CLASSES = ("Riot Client", "RiotClientServices", "LeagueClientUx",
+                         "League of Legends", "LeagueClient")
+# Since there is no macOS Dock to re-summon a closed window, treat the client being
+# window-less for this long (after a window has appeared) as "the user closed it" and
+# quit gracefully, rather than lingering headless. Longer than any login/game/post-game
+# transition gap, so it does not fire mid-session.
+WINDOW_CLOSE_QUIT_SECONDS = 25
 # A session younger than this has no client window yet; `play` waits instead of restarting.
 STARTUP_GRACE_SECONDS = 60
 DISPLAY_ENV = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR",
@@ -309,8 +318,37 @@ class Manager:
                     child.send_signal(signum)
             signal.signal(signal.SIGTERM, forward)
             signal.signal(signal.SIGINT, forward)
+
+            def watch_windows():
+                # macOS semantics are "close window != quit app", but there is no Dock
+                # here to re-open a closed window, so a closed window would otherwise
+                # leave the client running headless. Once the client has shown a window
+                # and then has none (and no game is running) for the grace period, quit
+                # through the normal stop path. The game-process check keeps a match
+                # launch (window briefly absent) from tripping it.
+                display = os.environ.get("DISPLAY")
+                if client_windows_present(display) is None:
+                    return
+                seen = False
+                gone_since = None
+                while not interrupted and child.poll() is None:
+                    if client_windows_present(display) or game_process_running():
+                        seen, gone_since = True, None
+                    elif seen:
+                        now = time.monotonic()
+                        gone_since = gone_since or now
+                        if now - gone_since >= WINDOW_CLOSE_QUIT_SECONDS:
+                            notify("Closing League", "The window was closed; quitting the client.")
+                            os.kill(os.getpid(), signal.SIGTERM)
+                            return
+                    time.sleep(2)
+
+            threading.Thread(target=watch_windows, daemon=True).start()
             result = child.wait()
-            return 0 if interrupted and result in (-signal.SIGTERM, -signal.SIGINT) else result
+            # A requested stop (signal, or a user-closed window via the watcher) is a
+            # clean exit even when the backend returns non-zero on shutdown (see also
+            # SuccessExitStatus in the unit).
+            return 0 if interrupted else result
 
     def configure(self, region=None, gpu=None, jobs=None):
         self.ensure_home()
@@ -354,6 +392,9 @@ EnvironmentFile=-{env_file}
 ExecStart={command} _session
 ExecStop={command} _stop-backend
 Restart=no
+# The Riot backend returns 1 from its own graceful shutdown, so a normal stop
+# should not leave the unit "failed". (A play restart also does reset-failed.)
+SuccessExitStatus=1
 KillMode=control-group
 TimeoutStopSec=90
 UMask=0077
@@ -430,6 +471,35 @@ Categories=Game;
 Keywords=League;Riot;LoL;Exit;Stop;Close;
 """
     return {"manager": manager, "play": play, "quit": quit_entry}
+
+
+def game_process_running():
+    """True while the League game process is up (it exists before its window during a
+    match launch, so the window watcher must not quit then)."""
+    if not shutil.which("pgrep"):
+        return False
+    found = subprocess.run(["pgrep", "-f", "Contents/MacOS/LeagueofLegends"],
+                           capture_output=True, text=True, check=False)
+    return bool(found.stdout.strip())
+
+
+def client_windows_present(display):
+    """True if any mapped client or game window exists on the display."""
+    if not display or not shutil.which("xdotool"):
+        return None  # cannot tell; callers treat this as "do not act"
+    env = {**os.environ, "DISPLAY": display}
+    mapped = shutil.which("xwininfo")
+    for cls in CLIENT_WINDOW_CLASSES:
+        found = subprocess.run(["xdotool", "search", "--class", cls],
+                               capture_output=True, text=True, check=False, env=env)
+        for window in found.stdout.split():
+            if not mapped:
+                return True
+            state = subprocess.run(["xwininfo", "-id", window], capture_output=True,
+                                   text=True, check=False, env=env).stdout
+            if "IsViewable" in state:
+                return True
+    return False
 
 
 def raise_client_windows():
