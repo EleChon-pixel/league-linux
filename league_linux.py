@@ -28,7 +28,7 @@ REGIONS = ("euw", "eune", "na", "br", "kr", "jp", "la1", "la2", "oc1", "ru", "tr
 
 # The Mac every prefix presents (configure-darling-platform.py profiles): a 2019 16-inch
 # MacBook Pro on macOS Sonoma 14.7, the version the Darling kernel already reports.
-HARDWARE_PROFILE = "macbookpro16,1"
+HARDWARE_PROFILE = "macmini8,1"
 OS_PROFILE = "sonoma-14.7-23H124"
 
 

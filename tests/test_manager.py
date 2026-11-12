@@ -87,7 +87,7 @@ class ManagerTests(unittest.TestCase):
             self.manager.provision_identity()
         command = [str(x) for x in run.call_args.args[0]]
         self.assertEqual(command[1:], [str(tool), "--prefix", str(self.manager.prefix), "--provision",
-                                       "--hardware-profile", "macbookpro16,1",
+                                       "--hardware-profile", "macmini8,1",
                                        "--os-profile", "sonoma-14.7-23H124", "--write"])
 
     def test_build_umask_creates_launchctl_compatible_directories(self):
