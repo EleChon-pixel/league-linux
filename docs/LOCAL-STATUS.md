@@ -1,4 +1,4 @@
-# Local status — 2026-11-13
+# Local status — 2026-11-14
 
 Project: `~/Development/repos/league-linux` on the development machine.
 
@@ -14,14 +14,30 @@ The runtime source is pinned by `upstream.lock.json` to the
 - Closing the client window quits the session; `league-linux quit` or the *Quit
   League* entry stops it at once. A stop while the client is still starting now
   also ends cleanly.
-- A VPN on the host stalls the client at its splash screen; turn it off to play.
+- The guest's IOKit registry is a recording of a real Macmini8,1 (about 610 entries
+  instead of 12). Checked on 2026-11-13 with a Practice Tool game: login, Vanguard
+  registration, Metal on the Intel GPU at about 119 fps, normal quit.
+- `system_profiler` lists only the Intel GPU. The game copies that output into its
+  own log (`Logs/GameLogs/*/*_r3dlog.txt`), which is a good place to see what the
+  game believes about the machine.
+- A VPN on the host stalls the client at its splash screen, or makes it report "no
+  internet found"; turn it off to play.
+- The League client logs `TERMINATED_IN_ERROR` when a game is quit normally; the
+  game's own log shows whether it was a crash.
 
 Known problems:
 
 - Chromium's Metal backend does not initialise (the Metal layer lacks
   `air.unpack.unorm4x8.srgb.v4f32`); it falls back and renders correctly.
 - The window watcher's guard against quitting during a match load has not been
-  checked in a real match.
+  checked in a matchmade game (a Practice Tool game loaded and ran without the
+  session ending).
+- Metal reports 4096 MB of VRAM for the Intel GPU (a Mac mini reports 1536 MB), and
+  the game logs "Metal Device timed out giving us a Drawable" once or twice while
+  loading.
+
+Remaining differences from a real Mac are listed under "What a guest can still
+tell" in the README.
 
 The sections below are the setup log from the first days and are kept as written.
 

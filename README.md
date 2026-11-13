@@ -151,21 +151,28 @@ the details.
 
 The identity covers names, IDs and what the runtime answers; it does not make the
 machine a Mac. Measured with a probe that compares against a real Macmini8,1
-(76 differences remain, down from 120; a third of them only show in the probe's own
-shell), code inside the prefix can still notice:
+(42 differences remain when the probe runs the way the client does, down from 120),
+code inside the prefix can still notice:
 
 - **The real CPU.** Instructions the i7-8700B lacks (SHA, GFNI, VAES, VPCLMULQDQ,
   SERIALIZE, AVX-VNNI) still execute instead of faulting, `XCR0` enables PKRU state,
   and the TSC ticks at the host's rate. CPUID can only be masked, not the hardware.
 - **Emulation cost.** A trapped `CPUID` takes ~3 µs and Mach IPC 30-70 µs, against
   well under 1 µs on a Mac.
-- **A thin system.** The IOKit registry is sparse (a Mac has thousands of entries; the
-  platform, GPU, Ethernet and internal SSD are there, but no SMC, USB, Bluetooth, HID
-  or framebuffers), there is no dyld shared
+- **A thin system.** There is no dyld shared
   cache (system libraries exist as files), no split System/Data volumes, no Finder,
   Dock, Safari or system fonts, and only the session's few processes run (no
   `kernel_task`, `WindowServer`, ...).
-- **Account details.** The user ID is 1000 rather than 501.
+- **Account details.** The user ID is 1000 rather than 501, and `TMPDIR` is
+  `/private/tmp` for some processes.
+- **A registry that only answers reads.** The IOKit registry is a recording of a real
+  Macmini8,1 (about 610 entries: SMC, USB, Bluetooth, HID, NVMe, framebuffers, with
+  the donor's serials and addresses removed and the prefix's own filled in). The
+  entries have the right names, classes and properties, but most have no driver
+  behind them: opening a user client on the SMC, for instance, fails where a Mac
+  answers.
+- **Reported VRAM.** Metal reports 4096 MB for the Intel GPU; a Mac mini reports
+  1536 MB.
 
 What the client actually sends can be checked with the audit below.
 
