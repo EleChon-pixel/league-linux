@@ -1,11 +1,29 @@
-# Local status — 2026-11-06
+# Local status — 2026-11-13
 
 Project: `~/Development/repos/league-linux` on the development machine.
 
 This is the local launcher for the macOS League client through Darling.
-The runtime source is pinned to `0b74916` on the `league-linux-integration` branch
-of https://github.com/EleChon-pixel/darling-lol (upstream `cf1fc55` plus the fixes
-below).
+The runtime source is pinned by `upstream.lock.json` to the
+`league-linux-integration` branch of https://github.com/EleChon-pixel/darling-lol.
+
+## Current state
+
+- The Riot Client installs, logs in and starts League; full games have been played.
+- The prefix presents a 2018 Mac mini (`Macmini8,1`); see "Machine identity" in the
+  README.
+- Closing the client window quits the session; `league-linux quit` or the *Quit
+  League* entry stops it at once. A stop while the client is still starting now
+  also ends cleanly.
+- A VPN on the host stalls the client at its splash screen; turn it off to play.
+
+Known problems:
+
+- Chromium's Metal backend does not initialise (the Metal layer lacks
+  `air.unpack.unorm4x8.srgb.v4f32`); it falls back and renders correctly.
+- The window watcher's guard against quitting during a match load has not been
+  checked in a real match.
+
+The sections below are the setup log from the first days and are kept as written.
 
 ## 2026-11-06: integration branch and signing
 

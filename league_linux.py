@@ -301,6 +301,13 @@ class Manager:
         print("Managed session stopped.")
 
     def stop_backend(self):
+        # ExecStop runs before systemd signals the session, and the backend may
+        # have exited by then. Tell the session first that this stop was asked
+        # for, so it does not report the backend's exit status as a failure.
+        try:
+            os.kill(int(os.environ["MAINPID"]), signal.SIGTERM)
+        except (KeyError, ValueError, OSError):
+            pass
         self.run([self.backend(), "--stop"], timeout=65)
 
     def session(self):

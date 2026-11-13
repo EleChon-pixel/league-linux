@@ -27,11 +27,12 @@ python3 league_linux.py install
 ~/.local/bin/league-linux gui
 ```
 
-The application menu has two entries: **League of Legends** starts the session
+The application menu has three entries: **League of Legends** starts the session
 in one click, or brings the Riot Client back to the front if it is already
-running. Closing the Riot Client's window keeps it running in the background
-(on macOS it waits in the menu bar, which Darling lacks); the entry then
-restarts the session. Right-click it for *Stop session* or the manager. **League
+running. Closing the Riot Client's window quits the session after about half a
+minute (on macOS the client would wait in the menu bar, which Darling lacks; a
+running game keeps the session up). **Quit League** stops everything at once.
+Right-click the play entry for *Stop session* or the manager. **League
 Linux** opens the manager window. Without a terminal, the play entry reports
 start-up problems as desktop notifications. Installation does not start a
 game or enable a service at login. Keep this checkout at its current path, since
@@ -112,9 +113,9 @@ The `intel` selector currently targets this laptop's Intel 8086:46a6 GPU.
 
 `prepare` gives the prefix one consistent Mac identity, and `league-linux identity`
 reapplies it to an existing prefix (stop the session first). Every guest process
-sees a 2019 16-inch MacBook Pro (`MacBookPro16,1`, Intel Core i9-9980HK, Intel UHD
-Graphics 630 + AMD Radeon Pro 5500M) on macOS Sonoma 14.7 (23H124), hostname
-`MacBook-Pro.local`, through sysctl, IOKit, Metal, `system_profiler` and
+sees a 2018 Mac mini (`Macmini8,1`, Intel Core i7-8700B with 6 cores and 12 threads,
+Intel UHD Graphics 630 and no other GPU) on macOS Sonoma 14.7 (23H124), hostname
+`Mac-mini.local`, through sysctl, IOKit, Metal, `system_profiler` and
 `SystemVersion.plist`. The serial and hardware UUID are generated once per prefix
 and kept. The guest home has its own `Desktop`, `Documents`, ... folders rather than
 links into your Linux home, and the client starts from `/Users/Shared/Riot Games`,
@@ -123,7 +124,7 @@ allowlist: desktop-session, shell and developer-tool variables stay on the host.
 Applications also do not see `/proc`, `/Volumes/SystemRoot`, Linux mount points,
 Linux-only device nodes (`/dev/dri`, `/dev/nvidia*`, `/dev/shm`, `/dev/input`, ...),
 Darling's own files (`/usr/libexec/darling`, `/etc/darling-*`), Linux interface names
-(they get `lo0`, `en0`, `utunN`) or the host-library variables in their environment.
+(they get `lo0`, `en0` for Ethernet, `en1` for Wi-Fi, `utunN`) or the host-library variables in their environment.
 Network adapters do not show their hardware addresses: `en0` reports the prefix's
 generated ROM address, which carries one of Apple's vendor prefixes as a Mac's built-in
 interface does, and the other interfaces get addresses derived from it. The Riot
@@ -139,8 +140,9 @@ with `kern.uuid` (per macOS build) and `kern.bootsessionuuid` (per boot). The pr
 list (`proc_listallpids`, `KERN_PROC_ALL`) holds the session's macOS processes under
 their own names, without Darling's helpers.
 
-Only names and IDs are presented; the GPU that renders and the logical CPU count are
-your real ones. If a game misbehaves, `league-linux identity --show-host` or
+Only names, IDs and counts are presented; the GPU that renders and the cores that run
+the threads are your real ones (a second host GPU is not shown, since a Mac mini has
+one). If a game misbehaves, `league-linux identity --show-host` or
 `league-linux identity --host-cpuid` turns those parts off (run `league-linux identity`
 again to turn them back on). See upstream `docs/PLATFORM_IDENTITY.md` for
 the details.
@@ -148,16 +150,18 @@ the details.
 ### What a guest can still tell
 
 The identity covers names, IDs and what the runtime answers; it does not make the
-machine a Mac. Measured with a probe that compares against a real MacBookPro16,1
-(82 differences remain, down from 120), code inside the prefix can still notice:
+machine a Mac. Measured with a probe that compares against a real Macmini8,1
+(76 differences remain, down from 120; a third of them only show in the probe's own
+shell), code inside the prefix can still notice:
 
-- **The real CPU.** Instructions the i9-9980HK lacks (SHA, GFNI, VAES, VPCLMULQDQ,
+- **The real CPU.** Instructions the i7-8700B lacks (SHA, GFNI, VAES, VPCLMULQDQ,
   SERIALIZE, AVX-VNNI) still execute instead of faulting, `XCR0` enables PKRU state,
   and the TSC ticks at the host's rate. CPUID can only be masked, not the hardware.
 - **Emulation cost.** A trapped `CPUID` takes ~3 µs and Mach IPC 30-70 µs, against
   well under 1 µs on a Mac.
-- **A thin system.** The IOKit registry has about 10 entries (a Mac: thousands; no
-  SMC, battery, NVMe, USB, Bluetooth, HID or framebuffers), there is no dyld shared
+- **A thin system.** The IOKit registry is sparse (a Mac has thousands of entries; the
+  platform, GPU, Ethernet and internal SSD are there, but no SMC, USB, Bluetooth, HID
+  or framebuffers), there is no dyld shared
   cache (system libraries exist as files), no split System/Data volumes, no Finder,
   Dock, Safari or system fonts, and only the session's few processes run (no
   `kernel_task`, `WindowServer`, ...).

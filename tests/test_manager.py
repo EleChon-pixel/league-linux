@@ -245,6 +245,16 @@ class ManagerTests(unittest.TestCase):
         with patch("shutil.which", side_effect=which), patch("subprocess.run", side_effect=run_unmapped):
             self.assertFalse(app.client_windows_present(":1"))
 
+    def test_stop_backend_tells_the_session_before_stopping(self):
+        import signal
+        calls = []
+        with patch.dict(os.environ, {"MAINPID": "4242"}), \
+             patch.object(app.os, "kill", side_effect=lambda *a: calls.append(("kill", *a))), \
+             patch.object(app.Manager, "backend", return_value="backend"), \
+             patch.object(app.Manager, "run", side_effect=lambda *a, **k: calls.append(("run", a[0]))):
+            self.manager.stop_backend()
+        self.assertEqual(calls, [("kill", 4242, signal.SIGTERM), ("run", ["backend", "--stop"])])
+
     def test_unit_treats_backend_shutdown_exit_as_success(self):
         text = app.unit_text(self.manager)
         self.assertIn("SuccessExitStatus=1", text)
