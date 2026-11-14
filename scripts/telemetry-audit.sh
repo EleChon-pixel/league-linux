@@ -16,6 +16,12 @@
 # Requests are written, with credentials, tokens and account names redacted, to
 # $LEAGUE_LINUX_HOME/audit/telemetry-<time>.jsonl (mode 0600). Hosts that refuse the CA
 # are listed as pinned and then passed through untouched, so they keep working.
+# In transparent mode the session also runs with SSLKEYLOGFILE set and its TCP is captured:
+# the League client and the game refuse the CA, but their libcurl logs each connection's
+# TLS keys, so scripts/telemetry-audit-decrypt.py reads their requests afterwards (to
+# telemetry-<time>.keylog.jsonl, same redaction). The capture and the keys are deleted
+# after that unless LEAGUE_AUDIT_KEEP_CAPTURE=1. Vanguard's own TLS library ignores the
+# variable and encrypts its payloads itself, so those stay unread.
 # Connections that did not go through mitmproxy (sampled from the session's sockets every
 # 2 s; UDP only when connected) go to telemetry-<time>.connections.tsv.
 set -euo pipefail
@@ -31,6 +37,11 @@ audit="$home/audit"
 confdir="$audit/mitmproxy"
 log="$audit/telemetry-$(date +%Y%m%d-%H%M%S).jsonl"
 connections="${log%.jsonl}.connections.tsv"
+pcap="${log%.jsonl}.pcap"
+keys="${log%.jsonl}.tls-keys.log"
+decrypted="${log%.jsonl}.keylog.jsonl"
+guest_keys=/Users/Shared/.league-audit-tls-keys.log
+host_keys="$home/prefix$guest_keys"
 pasta_pid="$audit/.pasta.pid"
 netns_pid="$audit/.netns.pid"
 active="$audit/.active"
@@ -39,7 +50,7 @@ guest_ca=/Users/Shared/.league-audit-ca.pem
 host_ca="$home/prefix$guest_ca"
 proxy="http://127.0.0.1:$port"
 proxy_vars="http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY RCLOL_KEEP_HOST_ENV"
-netns_vars="RCLOL_NETNS_HOOK LEAGUE_AUDIT_WG_CONF LEAGUE_AUDIT_WG_PORT LEAGUE_AUDIT_PASTA_PID LEAGUE_AUDIT_NETNS_PID PASTA WG"
+netns_vars="RCLOL_NETNS_HOOK LEAGUE_AUDIT_WG_CONF LEAGUE_AUDIT_WG_PORT LEAGUE_AUDIT_PASTA_PID LEAGUE_AUDIT_NETNS_PID LEAGUE_AUDIT_PCAP SSLKEYLOGFILE PASTA WG"
 
 [ -x "$mitmdump" ] || { echo "mitmdump not found; install mitmproxy (uv tool install --python 3.12 mitmproxy)" >&2; exit 1; }
 mkdir -p "$confdir"
@@ -61,7 +72,10 @@ case "$mode" in
     PASTA=${PASTA:-$(nix_build nixpkgs#passt | grep -v -- '-man$' | head -1)/bin/pasta}
     WG=${WG:-$(nix_build nixpkgs#wireguard-tools | grep -v -- '-man$' | head -1)/bin/wg}
     [ -x "$PASTA" ] && [ -x "$WG" ] || { echo "pasta or wg missing ($PASTA, $WG)" >&2; exit 1; }
-    for tool in nsenter ip nft; do
+    TSHARK=${TSHARK:-$(command -v tshark || echo "$(nix_build nixpkgs#wireshark-cli | head -1)/bin/tshark")}
+    [ -x "$TSHARK" ] || { echo "tshark missing ($TSHARK)" >&2; exit 1; }
+    export TSHARK
+    for tool in nsenter ip nft tcpdump; do
       command -v "$tool" >/dev/null || { echo "$tool is required for transparent mode" >&2; exit 1; }
     done
     mitm_mode=(--mode "wireguard@127.0.0.1:$wg_port");;
@@ -156,9 +170,23 @@ cleanup() {
   guest /usr/bin/security remove-trusted-cert -d "$guest_ca" >/dev/null 2>&1
   guest /usr/bin/security delete-certificate -c mitmproxy /Library/Keychains/System.keychain >/dev/null 2>&1
   rm -f "$host_ca" "$home/prefix/Users/Shared/.league-audit-ca.sh"
+  [ -f "$host_keys" ] && mv "$host_keys" "$keys" && chmod 600 "$keys"
+  logs=("$log")
+  if [ -s "$pcap" ] && [ -s "$keys" ]; then
+    echo "Reading the pinned hosts with the clients' TLS keys..."
+    if python3 "$here/telemetry-audit-decrypt.py" "$pcap" "$keys" "$decrypted" "$log"; then
+      logs+=("$decrypted")
+      echo "Log: $decrypted"
+    fi
+  fi
+  if [ "${LEAGUE_AUDIT_KEEP_CAPTURE:-0}" = 1 ]; then
+    chmod 600 "$pcap" "$keys" 2>/dev/null
+  else
+    rm -f "$pcap" "$keys"  # together they hold the session's credentials in the clear
+  fi
   echo "Log: $log"
   [ -f "$connections" ] && chmod 600 "$connections"
-  [ -s "$log" ] && python3 "$here/telemetry-audit-summary.py" "$log" "$connections"
+  [ -s "$log" ] && python3 "$here/telemetry-audit-summary.py" "${logs[@]}" "$connections"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -172,9 +200,11 @@ kill -0 "$mitm_pid" 2>/dev/null || { mitm_pid=; echo "mitmdump did not start" >&
 # The managed session reads the user manager's environment when it starts.
 rm -f "$pasta_pid" "$netns_pid"
 if [ "$mode" = transparent ]; then
+  ( umask 077; : > "$host_keys"; : > "$pcap" )
   systemctl --user set-environment RCLOL_NETNS_HOOK="$here/audit-netns.sh" \
     LEAGUE_AUDIT_WG_CONF="$confdir/wireguard.conf" LEAGUE_AUDIT_WG_PORT="$wg_port" \
-    LEAGUE_AUDIT_PASTA_PID="$pasta_pid" LEAGUE_AUDIT_NETNS_PID="$netns_pid" PASTA="$PASTA" WG="$WG"
+    LEAGUE_AUDIT_PASTA_PID="$pasta_pid" LEAGUE_AUDIT_NETNS_PID="$netns_pid" PASTA="$PASTA" WG="$WG" \
+    LEAGUE_AUDIT_PCAP="$pcap" SSLKEYLOGFILE="$guest_keys" RCLOL_KEEP_HOST_ENV=SSLKEYLOGFILE
 else
   systemctl --user set-environment http_proxy="$proxy" https_proxy="$proxy" HTTP_PROXY="$proxy" \
     HTTPS_PROXY="$proxy" no_proxy=127.0.0.1,localhost NO_PROXY=127.0.0.1,localhost \

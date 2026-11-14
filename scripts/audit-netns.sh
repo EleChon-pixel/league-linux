@@ -12,6 +12,8 @@
 # Needs: LEAGUE_AUDIT_WG_CONF (mitmproxy's wireguard.conf), LEAGUE_AUDIT_WG_PORT, PASTA, WG,
 # and LEAGUE_AUDIT_PASTA_PID, where pasta's PID is written for the caller to stop it.
 # LEAGUE_AUDIT_NETNS_PID, if set, receives the namespace PID (to sample its sockets).
+# LEAGUE_AUDIT_PCAP, if set, receives a capture of the tunnel's TCP from the first packet
+# (telemetry-audit-decrypt.py reads it with the TLS keys the clients log).
 set -euo pipefail
 
 pid=$1
@@ -63,3 +65,11 @@ table ip audit {
 }
 NFT
 EOF
+
+if [ -n "${LEAGUE_AUDIT_PCAP:-}" ]; then
+  # The shell opens the file: tcpdump's AppArmor profile cannot write below ~/.local/share.
+  ( umask 077
+    setsid nsenter --target "$pid" --user --net tcpdump -Z root -i wg0 -s 0 -U -w - tcp \
+      > "$LEAGUE_AUDIT_PCAP" 2>/dev/null < /dev/null & )
+  sleep 1
+fi

@@ -204,16 +204,41 @@ While it records, use the client itself (log in, start a practice game). The aud
 starts the session; "Play League" in the application menu leaves a recorded session
 running rather than restarting it. Quitting League ends the session and the recording.
 
+The audited session also runs with `SSLKEYLOGFILE` set, and its TCP is captured. The
+Riot Client's own network library writes each connection's TLS keys there, so
+`scripts/telemetry-audit-decrypt.py` reads its requests from the capture afterwards
+without touching any certificate check (to `telemetry-*.keylog.jsonl`, same redaction;
+the summary lists those hosts separately). The capture and the keys are deleted once
+read; `LEAGUE_AUDIT_KEEP_CAPTURE=1` keeps them, and together they hold the session's
+credentials in the clear. A Mac would not have that variable set, so it is there only
+during an audit.
+
 What stays unreadable:
 
-- The League client and the game check certificates against their own list, so their
-  HTTPS (queues, payments, `ekg.riotgames.com`, chat, voice) is passed through, not
-  decrypted. The first League client of an audit can fail to load its queues while
-  those hosts are being found; the restarted client works.
+- The League client and the game check certificates against their own list, so
+  mitmproxy passes their HTTPS (queues, payments, `ekg.riotgames.com`, chat, voice)
+  through. They carry the same network library as the Riot Client, so the key log is
+  expected to cover them; that has been confirmed for the Riot Client only so far.
+  Connections whose keys were not logged are listed as still unread. The first League
+  client of an audit can fail to load its queues while those hosts are being found; the
+  restarted client works.
 - Vanguard's macOS gateway encrypts its payloads before TLS, so its requests are
-  listed but not readable.
+  listed but not readable. This project does not try to break that.
 - Game traffic (UDP to the game server) leaves the namespace directly. Riot encrypts it
-  with an extra layer beyond the per-match key on the game's command line.
+  with an extra layer beyond the per-match key on the game's command line. Not
+  attempted either.
+
+### What one component asks for
+
+`scripts/call-trace.sh on [image]` makes the runtime record every system call, Mach
+request (IOKit lookups among them) and CPUID made while the named image's code is on
+the calling thread's stack (default `mvg.framework/`), with the arguments and the
+answer the runtime gave. Nothing is injected into the traced process and none of its
+files change: the recording is part of the runtime's own system-call layer, and its
+two files in the prefix are hidden from the guest. `scripts/call-trace.sh summary`
+groups the log into sysctl names, files looked up, Mach requests and CPUID leaves, and
+lists first what was asked for and not answered. `scripts/call-trace.sh off` stops it;
+leave it off for normal play.
 
 ## Scope of separation
 

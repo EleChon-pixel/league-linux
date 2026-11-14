@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Summarize a telemetry-audit JSONL log: hosts, endpoints, pinned hosts, identity fields.
 
-    scripts/telemetry-audit-summary.py <log.jsonl> [<connections.tsv>]
+    scripts/telemetry-audit-summary.py <log.jsonl> [<keylog.jsonl>] [<connections.tsv>]
+
+A second .jsonl is the output of telemetry-audit-decrypt.py: requests of hosts that
+refused the audit CA, read with the clients' own TLS keys.
 
 The optional connections file (written next to the log by telemetry-audit.sh) lists the
 outside connections the session's processes opened without the proxy; those requests are
@@ -41,7 +44,7 @@ def walk(value, path=""):
         yield path, value
 
 
-def main(path):
+def main(paths):
     hosts = collections.Counter()
     endpoints = collections.Counter()
     pinned = collections.Counter()
@@ -51,8 +54,21 @@ def main(path):
     lookups = collections.Counter()
     raw_tcp = collections.Counter()
     passthrough = collections.Counter()
-    for line in open(path, encoding="utf-8"):
+    keylog = collections.Counter()
+    unread = collections.Counter()
+    lines = [line for path in paths for line in open(path, encoding="utf-8")]
+    for line in lines:
         record = json.loads(line)
+        if "undecrypted" in record:
+            unread[record["undecrypted"]] += record.get("connections", 1)
+            continue
+        if "client_start" in record:  # decrypted with the client's keys, not HTTP
+            keylog[record["tcp"] + " (not HTTP)"] += 1
+            match = TELLTALE.search(record["client_start"])
+            if match:
+                text = record["client_start"][max(0, match.start() - 60):match.end() + 60]
+                telltales[("stream", text[:200])].add(record["tcp"])
+            continue
         if "dns" in record:
             lookups.update(name.rstrip(".") for name in record["dns"])
             continue
@@ -70,6 +86,8 @@ def main(path):
             errors[url.netloc] += 1
             continue
         hosts[url.netloc] += 1
+        if record.get("via") == "keylog":
+            keylog[url.netloc] += 1
         endpoints["%s %s%s" % (record.get("method"), url.netloc, url.path)] += 1
         sources = [("header", record.get("request_headers") or {}), ("body", record.get("request_body")),
                    ("query", url.query)]
@@ -92,6 +110,14 @@ def main(path):
         print("\n== Refused our CA (pinned or own trust store; later connections passed through unrecorded)")
         for host, count in pinned.most_common():
             print("%6d  %s  (+%d passed through)" % (count, host, passthrough[host]))
+    if keylog:
+        print("\n== Read with the clients' own TLS keys (certificate checks left alone)")
+        for host, count in keylog.most_common():
+            print("%6d  %s" % (count, host))
+    if unread:
+        print("\n== Still unread (no keys logged for these connections)")
+        for host, count in unread.most_common():
+            print("%6d  %s" % (count, host))
     if raw_tcp:
         print("\n== Non-HTTP TCP (endpoints only)")
         for host, count in raw_tcp.most_common():
@@ -145,6 +171,7 @@ def reverse_name(address):
 
 if __name__ == "__main__":
     socket.setdefaulttimeout(3)
-    main(sys.argv[1])
-    if len(sys.argv) > 2:
-        direct_connections(sys.argv[2])
+    main([path for path in sys.argv[1:] if path.endswith(".jsonl")])
+    for path in sys.argv[1:]:
+        if not path.endswith(".jsonl"):
+            direct_connections(path)
